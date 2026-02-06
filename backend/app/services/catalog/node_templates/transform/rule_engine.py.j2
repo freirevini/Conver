@@ -1,0 +1,105 @@
+{# 
+  Rule Engine Template
+  Applies business rules to create/modify columns
+#}
+def node_{{ node_id }}_rule_engine(
+    input_0: pd.DataFrame,
+    *,
+    {% if settings.rules %}
+    rules: list = {{ settings.rules | tojson }},
+    {% else %}
+    rules: list = [],
+    {% endif %}
+    {% if settings.output_column %}
+    output_column: str = "{{ settings.output_column }}",
+    {% else %}
+    output_column: str = "result",
+    {% endif %}
+    {% if settings.default_value %}
+    default_value: any = {{ settings.default_value | tojson }},
+    {% else %}
+    default_value: any = None,
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Applies business rules to create/modify columns.
+    Rules format: [{"condition": "...", "result": "..."}]
+    """
+    df = input_0.copy()
+    
+    if not rules:
+        logger.warning("No rules provided")
+        df[output_column] = default_value
+        return df
+    
+    # Initialize result column with default
+    df[output_column] = default_value
+    
+    # Apply rules in order (first match wins in KNIME)
+    for rule in reversed(rules):  # Reverse so last matching rule wins
+        condition = rule.get("condition", "")
+        result = rule.get("result", default_value)
+        
+        if not condition:
+            continue
+            
+        try:
+            # Convert KNIME rule syntax to pandas
+            py_condition = _convert_knime_rule(condition, df)
+            
+            # Create mask
+            mask = eval(py_condition)
+            
+            # Apply result where condition is True
+            if callable(result):
+                df.loc[mask, output_column] = result(df[mask])
+            else:
+                df.loc[mask, output_column] = result
+                
+        except Exception as e:
+            logger.warning(f"Failed to apply rule '{condition}': {e}")
+    
+    return df
+
+
+def _convert_knime_rule(condition: str, df: pd.DataFrame) -> str:
+    """Convert KNIME rule syntax to pandas/Python syntax."""
+    import re
+    
+    py_cond = condition
+    
+    # Replace column references: $column$ -> df['column']
+    col_refs = re.findall(r'\$([^$]+)\$', py_cond)
+    for col in col_refs:
+        py_cond = py_cond.replace(f'${col}$', f"df['{col}']")
+    
+    # Replace operators
+    py_cond = py_cond.replace(' AND ', ' & ')
+    py_cond = py_cond.replace(' OR ', ' | ')
+    py_cond = py_cond.replace(' NOT ', ' ~')
+    py_cond = py_cond.replace('<>', '!=')
+    
+    # Replace LIKE with str.contains
+    like_pattern = re.compile(r"(.+)\s+LIKE\s+['\"](.+)['\"]", re.IGNORECASE)
+    match = like_pattern.search(py_cond)
+    if match:
+        col_expr = match.group(1)
+        pattern = match.group(2).replace('%', '.*')
+        py_cond = f"{col_expr}.astype(str).str.match(r'{pattern}')"
+    
+    # Replace MISSING with isna()
+    py_cond = re.sub(r'MISSING\s*\((.+?)\)', r'\1.isna()', py_cond)
+    
+    # Replace IN with isin()
+    in_pattern = re.compile(r"(.+)\s+IN\s+\((.+)\)", re.IGNORECASE)
+    match = in_pattern.search(py_cond)
+    if match:
+        col_expr = match.group(1)
+        values = match.group(2)
+        py_cond = f"{col_expr}.isin([{values}])"
+    
+    return py_cond

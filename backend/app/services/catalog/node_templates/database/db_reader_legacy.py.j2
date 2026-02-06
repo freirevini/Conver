@@ -1,0 +1,47 @@
+{# 
+  Database Reader (Legacy) Template
+  Reads data from SQL database using legacy KNIME connector
+#}
+def node_{{ node_id }}_db_reader_legacy(
+    {% if has_connection_input %}
+    connection: sqlalchemy.Engine,
+    {% endif %}
+    *,
+    {% if settings.query %}
+    query: str = """{{ settings.query }}""",
+    {% else %}
+    query: str = "SELECT * FROM table_name",
+    {% endif %}
+    {% if settings.connection_string %}
+    connection_string: str = "{{ settings.connection_string }}",
+    {% else %}
+    connection_string: str = os.environ.get("DB_CONNECTION_STRING", ""),
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Reads data from database using SQL query.
+    """
+    {% if has_connection_input %}
+    # Use provided connection
+    engine = connection
+    {% else %}
+    # Create connection from string
+    if not connection_string:
+        raise ValueError("Database connection string is required")
+    engine = create_engine(connection_string)
+    {% endif %}
+    
+    logger.info(f"Executing SQL query...")
+    
+    try:
+        df = pd.read_sql(query, engine)
+        logger.info(f"Query returned {len(df)} rows")
+    except Exception as e:
+        logger.error(f"Database query failed: {e}")
+        raise
+    
+    return df

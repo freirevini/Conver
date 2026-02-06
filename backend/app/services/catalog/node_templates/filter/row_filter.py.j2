@@ -1,0 +1,78 @@
+{# 
+  Row Filter Template
+  Filters rows based on conditions
+#}
+def node_{{ node_id }}_row_filter(
+    input_0: pd.DataFrame,
+    *,
+    {% if settings.column %}
+    filter_column: str = "{{ settings.column }}",
+    {% else %}
+    filter_column: str = None,
+    {% endif %}
+    {% if settings.operator %}
+    operator: str = "{{ settings.operator }}",
+    {% else %}
+    operator: str = "eq",
+    {% endif %}
+    {% if settings.value %}
+    filter_value: any = {{ settings.value | tojson }},
+    {% else %}
+    filter_value: any = None,
+    {% endif %}
+    {% if settings.query %}
+    query_string: str = "{{ settings.query }}",
+    {% else %}
+    query_string: str = None,
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Filters rows from DataFrame based on conditions.
+    """
+    df = input_0.copy()
+    initial_count = len(df)
+    
+    if query_string:
+        # Use pandas query syntax directly
+        try:
+            df = df.query(query_string)
+        except Exception as e:
+            logger.warning(f"Query failed: {e}, returning original")
+    elif filter_column and filter_column in df.columns:
+        # Apply filter based on operator
+        col = df[filter_column]
+        
+        if operator in ("eq", "==", "equals"):
+            mask = col == filter_value
+        elif operator in ("ne", "!=", "not equals"):
+            mask = col != filter_value
+        elif operator in ("gt", ">", "greater than"):
+            mask = col > filter_value
+        elif operator in ("ge", ">=", "greater or equal"):
+            mask = col >= filter_value
+        elif operator in ("lt", "<", "less than"):
+            mask = col < filter_value
+        elif operator in ("le", "<=", "less or equal"):
+            mask = col <= filter_value
+        elif operator in ("contains", "like"):
+            mask = col.astype(str).str.contains(str(filter_value), na=False)
+        elif operator in ("startswith", "starts with"):
+            mask = col.astype(str).str.startswith(str(filter_value))
+        elif operator in ("endswith", "ends with"):
+            mask = col.astype(str).str.endswith(str(filter_value))
+        elif operator in ("isnull", "is null", "missing"):
+            mask = col.isna()
+        elif operator in ("notnull", "not null", "not missing"):
+            mask = col.notna()
+        else:
+            logger.warning(f"Unknown operator: {operator}")
+            mask = pd.Series([True] * len(df))
+        
+        df = df[mask]
+    
+    logger.debug(f"Row filter: {initial_count} -> {len(df)} rows")
+    return df

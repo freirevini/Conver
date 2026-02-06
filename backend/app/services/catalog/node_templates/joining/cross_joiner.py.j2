@@ -1,0 +1,31 @@
+{# 
+  Cross Joiner Template
+  Creates a Cartesian product of two DataFrames
+#}
+def node_{{ node_id }}_cross_joiner(
+    input_0: pd.DataFrame,
+    input_1: pd.DataFrame,
+    *,
+    {% if settings.row_key_separator %}
+    row_key_separator: str = "{{ settings.row_key_separator }}",
+    {% else %}
+    row_key_separator: str = "_",
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Creates Cartesian product (cross join) of two DataFrames.
+    """
+    logger.debug(f"Cross joining: {len(input_0)} x {len(input_1)} rows")
+    
+    # pandas 1.3+ has native cross merge
+    df = input_0.merge(input_1, how="cross")
+    
+    # Handle duplicate column names if any
+    # Note: pandas already handles this with _x and _y suffixes
+    
+    logger.info(f"Cross join result: {len(df)} rows")
+    return df

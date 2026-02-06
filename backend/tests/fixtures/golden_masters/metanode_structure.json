@@ -1,0 +1,13 @@
+{
+  "metanode_name": "CALCULA A TA (#1649)",
+  "has_workflow_knime": true,
+  "has_settings_xml": false,
+  "child_node_count": 35,
+  "child_node_samples": [
+    "CALCULO DA T (#1592)",
+    "CALCULO DA T (#1620)",
+    "Column Filter (#1590)",
+    "Column Filter (#1600)",
+    "Column Filter (#1622)"
+  ]
+}

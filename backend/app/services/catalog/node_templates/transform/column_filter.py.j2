@@ -1,0 +1,38 @@
+{# 
+  Column Filter Template
+  Filters columns from a DataFrame, keeping only selected ones
+#}
+def node_{{ node_id }}_column_filter(
+    input_0: pd.DataFrame,
+    *,
+    {% if settings.included_columns %}
+    include_columns: list = {{ settings.included_columns | tojson }},
+    {% else %}
+    include_columns: list = None,
+    {% endif %}
+    {% if settings.excluded_columns %}
+    exclude_columns: list = {{ settings.excluded_columns | tojson }},
+    {% else %}
+    exclude_columns: list = None,
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Filters columns from DataFrame.
+    """
+    df = input_0.copy()
+    
+    if include_columns:
+        # Keep only specified columns (that exist)
+        existing_cols = [c for c in include_columns if c in df.columns]
+        df = df[existing_cols]
+    elif exclude_columns:
+        # Remove specified columns
+        cols_to_keep = [c for c in df.columns if c not in exclude_columns]
+        df = df[cols_to_keep]
+    
+    logger.debug(f"Column filter: {len(input_0.columns)} -> {len(df.columns)} columns")
+    return df

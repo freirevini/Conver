@@ -1,0 +1,75 @@
+# Backend .dockerignore
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+.eggs
+dist
+build
+*.egg
+
+# Virtual environments
+venv
+.venv
+env
+ENV
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+*.cover
+.hypothesis
+
+# Local development
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs
+
+# Temp files
+temp
+tmp
+*.tmp
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Tests (exclude from production image)
+tests
+test_*.py
+conftest.py
+
+# Secrets (never include)
+secrets
+*.pem
+*.key
+service-account*.json
+
+# Large files
+*.knwf
+*.zip
+fluxo_knime_exemplo
+
+# Cache
+.cache
+.mypy_cache
+.ruff_cache

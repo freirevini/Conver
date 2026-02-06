@@ -1,0 +1,76 @@
+{# 
+  Math Formula Template
+  Applies mathematical formulas to create new columns
+#}
+def node_{{ node_id }}_math_formula(
+    input_0: pd.DataFrame,
+    *,
+    {% if settings.expression %}
+    expression: str = "{{ settings.expression }}",
+    {% else %}
+    expression: str = "",
+    {% endif %}
+    {% if settings.output_column %}
+    output_column: str = "{{ settings.output_column }}",
+    {% else %}
+    output_column: str = "result",
+    {% endif %}
+    {% if settings.replace_column %}
+    replace_column: str = "{{ settings.replace_column }}",
+    {% else %}
+    replace_column: str = None,
+    {% endif %}
+) -> pd.DataFrame:
+    """
+    {{ node_name }}
+    KNIME Node ID: {{ node_id }}
+    Factory: {{ factory_class }}
+    
+    Applies mathematical formula to create/modify columns.
+    """
+    df = input_0.copy()
+    
+    if not expression:
+        logger.warning("No expression provided")
+        return df
+    
+    try:
+        # Convert KNIME expression syntax to pandas/Python
+        # Replace $ with column references
+        py_expr = expression
+        
+        # Handle KNIME column references: $column_name$
+        import re
+        col_refs = re.findall(r'\$([^$]+)\$', py_expr)
+        for col in col_refs:
+            py_expr = py_expr.replace(f'${col}$', f"df['{col}']")
+        
+        # Common KNIME function mappings
+        py_expr = py_expr.replace('ABS(', 'np.abs(')
+        py_expr = py_expr.replace('SQRT(', 'np.sqrt(')
+        py_expr = py_expr.replace('LOG(', 'np.log(')
+        py_expr = py_expr.replace('LOG10(', 'np.log10(')
+        py_expr = py_expr.replace('EXP(', 'np.exp(')
+        py_expr = py_expr.replace('ROUND(', 'np.round(')
+        py_expr = py_expr.replace('FLOOR(', 'np.floor(')
+        py_expr = py_expr.replace('CEIL(', 'np.ceil(')
+        py_expr = py_expr.replace('POW(', 'np.power(')
+        py_expr = py_expr.replace('MIN(', 'np.minimum(')
+        py_expr = py_expr.replace('MAX(', 'np.maximum(')
+        
+        # Evaluate expression
+        result = eval(py_expr)
+        
+        # Assign result
+        target_col = replace_column if replace_column else output_column
+        df[target_col] = result
+        
+        logger.debug(f"Math formula applied: {expression} -> {target_col}")
+        
+    except Exception as e:
+        logger.error(f"Failed to evaluate expression '{expression}': {e}")
+        # Add column with NaN as fallback
+        target_col = replace_column if replace_column else output_column
+        df[target_col] = np.nan
+    
+    return df
