@@ -27,7 +27,7 @@ call venv\Scripts\activate.bat
 
 REM Install dependencies
 echo Installing dependencies...
-pip install -r requirements.txt
+pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
 
 REM Check for .env
 if not exist ".env" (

@@ -1,32 +1,33 @@
 #!/usr/bin/env python
 """
-KNIME to Python Transpiler - Standalone Version
+KNIME to Python Transpiler - Standalone Minimal Version
+
+NÃO requer instalação de dependências externas.
+Usa apenas bibliotecas padrão do Python.
 
 Usage:
-    python transpile.py <arquivo.knwf>
+    python transpile.py arquivo.knwf
     
 Output:
-    Creates <arquivo>.py and <arquivo>_log.md in the same directory
+    - arquivo.py     (código Python gerado)
+    - arquivo_log.md (log de diagnóstico)
 """
 import sys
+import os
 import zipfile
 import tempfile
+import shutil
 import json
-import xml.etree.ElementTree as ET
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
 from collections import Counter
-
-# Add backend to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
 
 
 class TranspilerLog:
-    """Collects diagnostic information during transpilation."""
+    """Collects diagnostic information."""
     
-    def __init__(self, input_path: str):
+    def __init__(self, input_path):
         self.input_path = input_path
         self.start_time = datetime.now()
         self.extraction_method = ""
@@ -35,12 +36,10 @@ class TranspilerLog:
         self.fallback_nodes = []
         self.errors = []
         self.warnings = []
-        self._unique_warnings = set()  # Track unique warnings
+        self._unique_warnings = set()
         self.factory_counts = Counter()
-        self.settings_samples = []
     
-    def add_node(self, name: str, factory: str, matched: bool, template_name: str = ""):
-        """Record a processed node."""
+    def add_node(self, name, factory, matched, template_name=""):
         self.nodes_found.append({
             'name': name,
             'factory': factory,
@@ -56,26 +55,15 @@ class TranspilerLog:
         else:
             self.fallback_nodes.append({'name': name, 'factory': simple_factory})
     
-    def add_error(self, msg: str):
+    def add_error(self, msg):
         self.errors.append(msg)
     
-    def add_warning(self, msg: str):
-        # Deduplicate warnings  
+    def add_warning(self, msg):
         if msg not in self._unique_warnings:
             self._unique_warnings.add(msg)
             self.warnings.append(msg)
     
-    def add_settings_sample(self, name: str, factory: str, settings_preview: str):
-        """Store a sample of node settings for analysis."""
-        if len(self.settings_samples) < 10:  # Keep first 10 samples
-            self.settings_samples.append({
-                'name': name,
-                'factory': factory.split('.')[-1] if factory else 'Unknown',
-                'preview': settings_preview[:500]
-            })
-    
-    def generate_markdown(self) -> str:
-        """Generate diagnostic markdown log."""
+    def generate_markdown(self):
         end_time = datetime.now()
         duration = (end_time - self.start_time).total_seconds()
         
@@ -89,8 +77,8 @@ class TranspilerLog:
             "",
             "## Summary",
             "",
-            f"| Metric | Value |",
-            f"|--------|-------|",
+            "| Metric | Value |",
+            "|--------|-------|",
             f"| Input | `{Path(self.input_path).name}` |",
             f"| Timestamp | {self.start_time.strftime('%Y-%m-%d %H:%M:%S')} |",
             f"| Duration | {duration:.2f}s |",
@@ -102,27 +90,18 @@ class TranspilerLog:
             "",
         ]
         
-        # Errors section
         if self.errors:
-            lines.extend([
-                "## Errors",
-                "",
-            ])
+            lines.extend(["## Errors", ""])
             for err in self.errors:
                 lines.append(f"- `{err}`")
             lines.append("")
         
-        # Warnings section
         if self.warnings:
-            lines.extend([
-                "## Warnings",
-                "",
-            ])
+            lines.extend(["## Warnings", ""])
             for warn in self.warnings:
                 lines.append(f"- {warn}")
             lines.append("")
         
-        # Factory distribution (top 20)
         lines.extend([
             "## Factory Distribution (Top 20)",
             "",
@@ -133,21 +112,6 @@ class TranspilerLog:
             lines.append(f"| {factory} | {count} |")
         lines.append("")
         
-        # Template matches (first 15)
-        if self.template_matches:
-            lines.extend([
-                "## Template Matches (Sample)",
-                "",
-                "| Node | Factory | Template |",
-                "|------|---------|----------|",
-            ])
-            for item in self.template_matches[:15]:
-                lines.append(f"| {item['name'][:30]} | {item['factory']} | {item.get('template', 'default')[:20]} |")
-            if len(self.template_matches) > 15:
-                lines.append(f"| ... | +{len(self.template_matches) - 15} more | |")
-            lines.append("")
-        
-        # Fallback nodes (all - important for analysis)
         if self.fallback_nodes:
             lines.extend([
                 "## Fallback Nodes (No Template)",
@@ -155,7 +119,6 @@ class TranspilerLog:
                 "| Node | Factory |",
                 "|------|---------|",
             ])
-            # Group by factory to reduce noise
             fallback_by_factory = {}
             for item in self.fallback_nodes:
                 factory = item['factory']
@@ -171,23 +134,6 @@ class TranspilerLog:
                     lines.append(f"| {sample} | {factory} |")
             lines.append("")
         
-        # Settings samples (for debugging node detection)
-        if self.settings_samples:
-            lines.extend([
-                "## Settings Samples",
-                "",
-            ])
-            for i, sample in enumerate(self.settings_samples[:5]):
-                lines.extend([
-                    f"### {i+1}. {sample['name']} ({sample['factory']})",
-                    "",
-                    "```xml",
-                    sample['preview'],
-                    "```",
-                    "",
-                ])
-        
-        # All unique factories (for template development)
         lines.extend([
             "## All Unique Factories",
             "",
@@ -195,16 +141,13 @@ class TranspilerLog:
         ])
         for factory in sorted(set(n.get('factory', '') for n in self.nodes_found if n.get('factory'))):
             lines.append(factory.split('.')[-1])
-        lines.extend([
-            "```",
-            "",
-        ])
+        lines.extend(["```", ""])
         
         return '\n'.join(lines)
 
 
-def extract_knwf(knwf_path: Path, log: TranspilerLog) -> Path:
-    """Extract .knwf file to temp directory."""
+def extract_knwf(knwf_path, log):
+    """Extract .knwf to temp directory."""
     try:
         temp_dir = Path(tempfile.mkdtemp())
         with zipfile.ZipFile(knwf_path, 'r') as zf:
@@ -215,7 +158,7 @@ def extract_knwf(knwf_path: Path, log: TranspilerLog) -> Path:
         raise
 
 
-def find_nodes_from_settings(extract_dir: Path, log: TranspilerLog) -> List[Dict[str, Any]]:
+def find_nodes_from_settings(extract_dir, log):
     """Find nodes by scanning settings.xml files."""
     nodes = []
     node_id = 0
@@ -223,8 +166,6 @@ def find_nodes_from_settings(extract_dir: Path, log: TranspilerLog) -> List[Dict
     for settings_file in extract_dir.rglob('settings.xml'):
         try:
             content = settings_file.read_text(encoding='utf-8', errors='ignore')
-            
-            # Try to find factory class using regex
             factory_match = re.search(r'org\.knime\.[a-zA-Z0-9_.]+NodeFactory', content)
             
             if factory_match:
@@ -238,9 +179,6 @@ def find_nodes_from_settings(extract_dir: Path, log: TranspilerLog) -> List[Dict
                     'factory': factory,
                     'path': str(settings_file)
                 })
-                
-                # Add settings sample for first few nodes
-                log.add_settings_sample(name_clean, factory, content[:500])
                 node_id += 1
                 
         except Exception as e:
@@ -249,74 +187,117 @@ def find_nodes_from_settings(extract_dir: Path, log: TranspilerLog) -> List[Dict
     return nodes
 
 
-def load_analysis_json(knwf_path: Path, log: TranspilerLog) -> Optional[List[Dict]]:
-    """Try to load pre-analyzed workflow_analysis_v2.json."""
+def load_analysis_json(knwf_path, log):
+    """Try to load pre-analyzed JSON."""
     paths_to_try = [
         knwf_path.parent / "workflow_analysis_v2.json",
-        Path(__file__).parent.parent / "workflow_analysis_v2.json",
         Path(__file__).parent / "workflow_analysis_v2.json",
     ]
     
-    for analysis_path in paths_to_try:
-        if analysis_path.exists():
+    for path in paths_to_try:
+        if path.exists():
             try:
-                with open(analysis_path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     nodes = data.get('nodes', [])
-                    log.extraction_method = f"JSON ({analysis_path.name})"
+                    log.extraction_method = f"JSON ({path.name})"
                     return nodes
             except Exception as e:
-                log.add_warning(f"Failed to load {analysis_path}: {e}")
+                log.add_warning(f"Failed to load {path}: {e}")
     
     return None
 
 
-def get_template(factory: str, log: TranspilerLog) -> Tuple[Optional[str], str]:
-    """Get Python template for a KNIME factory. Returns (code, template_name)."""
-    template_name = ""
+# Template mappings (built-in, no external dependencies)
+TEMPLATES = {
+    # Column Operations
+    'DataColumnSpecFilterNodeFactory': 'df = df.copy()  # Column Filter',
+    'ColumnFilterNodeFactory': 'df = df.copy()  # Column Filter',
+    'RenameNodeFactory': 'df = df.rename(columns={})  # Rename columns',
+    'ColumnResorterNodeFactory': 'df = df[sorted_columns]  # Reorder columns',
     
-    # Try using the full template mapper
-    try:
-        from app.services.generator.template_mapper import TemplateMapper
-        mapper = TemplateMapper()
-        if mapper.has_template(factory):
-            code = mapper.generate_code(factory, {}, 'df', 'df')
-            return code, "TemplateMapper"
-    except Exception as e:
-        log.add_warning(f"TemplateMapper unavailable: {e}")
+    # Data Transformation
+    'GroupByNodeFactory': 'df = df.groupby([]).agg({}).reset_index()',
+    'SorterNodeFactory': 'df = df.sort_values(by=[])',
+    'RowFilterNodeFactory': 'df = df[condition].copy()  # Row Filter',
+    'DuplicateRowFilterNodeFactory': 'df = df.drop_duplicates()',
     
-    # Fallback templates
-    TEMPLATES = {
-        'DataColumnSpecFilterNodeFactory': ('df = df.copy()', 'ColumnFilter'),
-        'RenameNodeFactory': ('df = df.rename(columns={})', 'Rename'),
-        'GroupByNodeFactory': ('df = df.groupby([]).agg({}).reset_index()', 'GroupBy'),
-        'JoinerNodeFactory': ('df = df.merge(df_right, how="inner")', 'Joiner'),
-        'RowFilterNodeFactory': ('df = df[df["col"] == val].copy()', 'RowFilter'),
-        'SorterNodeFactory': ('df = df.sort_values(by=[])', 'Sorter'),
-        'JEPNodeFactory': ('df["result"] = df["a"] + df["b"]', 'MathFormula'),
-        'RuleEngineNodeFactory': ('df["result"] = np.where(df["c"] > 0, "A", "B")', 'RuleEngine'),
-        'StringManipulationNodeFactory': ('df["col"] = df["col"].str.upper()', 'StringManip'),
-        'CrossJoinerNodeFactory': ('df = df.merge(df2, how="cross")', 'CrossJoin'),
-        'ColumnAggregatorNodeFactory': ('df = df.agg("sum")', 'Aggregator'),
-        'RoundDoubleNodeFactory': ('df["col"] = df["col"].round(2)', 'Round'),
-        'NumberToString2NodeFactory': ('df["col"] = df["col"].astype(str)', 'NumToStr'),
-        'CellSplitterNodeFactory': ('df = df["col"].str.split(",", expand=True)', 'CellSplit'),
-        'MissingValueNodeFactory': ('df = df.fillna(0)', 'MissingValue'),
-        'DuplicateRowFilterNodeFactory': ('df = df.drop_duplicates()', 'DupFilter'),
-        'ConcatenateNodeFactory': ('df = pd.concat([df1, df2])', 'Concat'),
-        'ColumnResorterNodeFactory': ('df = df[sorted_cols]', 'Resorter'),
-        'EmptyTableSwitchNodeFactory': ('pass  # flow control', 'FlowCtrl'),
-        'EndifNodeFactory': ('pass  # end if', 'FlowCtrl'),
-    }
+    # Joins
+    'JoinerNodeFactory': 'df = df.merge(df_right, how="inner", on=[])',
+    'Joiner3NodeFactory': 'df = df.merge(df_right, how="inner", on=[])',
+    'CrossJoinerNodeFactory': 'df = df.merge(df_right, how="cross")',
+    'ConcatenateNodeFactory': 'df = pd.concat([df1, df2], ignore_index=True)',
+    'AppendedRowsNodeFactory': 'df = pd.concat([df1, df2], ignore_index=True)',
     
-    for key, (template, name) in TEMPLATES.items():
+    # Math & Formulas
+    'JEPNodeFactory': 'df["result"] = df["a"] + df["b"]  # Math Formula',
+    'MathFormulaNodeFactory': 'df["result"] = df["a"] + df["b"]',
+    'RoundDoubleNodeFactory': 'df["col"] = df["col"].round(2)',
+    'ColumnAggregatorNodeFactory': 'result = df.agg("sum")',
+    
+    # String Operations
+    'StringManipulationNodeFactory': 'df["col"] = df["col"].str.upper()',
+    'CellSplitterNodeFactory': 'df = df["col"].str.split(",", expand=True)',
+    'StringReplacerNodeFactory': 'df["col"] = df["col"].str.replace("old", "new")',
+    
+    # Type Conversion
+    'NumberToString2NodeFactory': 'df["col"] = df["col"].astype(str)',
+    'StringToNumber2NodeFactory': 'df["col"] = pd.to_numeric(df["col"], errors="coerce")',
+    'DoubleToIntNodeFactory': 'df["col"] = df["col"].astype(int)',
+    
+    # Rule Engine
+    'RuleEngineNodeFactory': 'df["result"] = np.where(condition, "A", "B")',
+    'RuleEngineFilterNodeFactory': 'df = df[rule_condition]  # Rule Filter',
+    
+    # Flow Control
+    'EmptyTableSwitchNodeFactory': 'pass  # Empty Table Switch',
+    'EndifNodeFactory': 'pass  # End IF',
+    'IfSwitchNodeFactory': 'pass  # IF Switch',
+    
+    # Loops
+    'GroupLoopStartNodeFactory': 'for group in groups:  # Group Loop',
+    'LoopEndDynamicNodeFactory': 'pass  # Loop End',
+    'LoopEndNodeFactory': 'pass  # Loop End',
+    
+    # Variables
+    'TableToVariable3NodeFactory': 'var = df.iloc[0]["col"]  # Table to Variable',
+    'VariableToTable4NodeFactory': 'df = pd.DataFrame([{"var": value}])',
+    'ConstantValueColumnNodeFactory': 'df["new_col"] = constant_value',
+    
+    # Date/Time
+    'OldToNewTimeNodeFactory': 'df["col"] = pd.to_datetime(df["col"])',
+    'DateTimeDifferenceNodeFactory': 'df["diff"] = df["end"] - df["start"]',
+    'CreateDateTimeNodeFactory': 'df["date"] = pd.Timestamp.now()',
+    'ExtractDateTimeFieldsNodeFactory2': 'df["year"] = df["date"].dt.year',
+    'DateTimeShiftNodeFactory': 'df["date"] = df["date"] + pd.Timedelta(days=1)',
+    'ModifyTimeNodeFactory': 'df["time"] = df["time"].apply(modify_func)',
+    
+    # Missing Values
+    'MissingValueNodeFactory': 'df = df.fillna(0)',
+    
+    # Database (placeholder)
+    'DatabaseLoopingNodeFactory': 'pass  # Database Loop - requires connection',
+    'DBReaderNodeFactory': 'df = pd.read_sql(query, conn)',
+    'DBLoaderNodeFactory2': 'df.to_sql("table", conn)',
+    'DBQueryReaderNodeFactory': 'df = pd.read_sql(query, conn)',
+    
+    # Counter
+    'CounterGenerationNodeFactory': 'df["counter"] = range(1, len(df) + 1)',
+    
+    # Add Empty Rows
+    'AddEmptyRowsNodeFactory': 'df = pd.concat([df, pd.DataFrame([{}])])',
+}
+
+
+def get_template(factory, log):
+    """Get Python template for a KNIME factory."""
+    for key, template in TEMPLATES.items():
         if key in factory:
-            return template, name
-    
+            return template, key.replace('NodeFactory', '')
     return None, ""
 
 
-def generate_code(nodes: List[Dict], log: TranspilerLog) -> str:
+def generate_code(nodes, log):
     """Generate Python code from nodes."""
     lines = [
         '"""',
@@ -326,7 +307,7 @@ def generate_code(nodes: List[Dict], log: TranspilerLog) -> str:
         '"""',
         'import pandas as pd',
         'import numpy as np',
-        'from datetime import datetime',
+        'from datetime import datetime, timedelta',
         '',
         '',
         'def run_pipeline(df_input: pd.DataFrame) -> pd.DataFrame:',
@@ -344,9 +325,7 @@ def generate_code(nodes: List[Dict], log: TranspilerLog) -> str:
         if template:
             log.add_node(name, factory, True, template_name)
             lines.append(f'    # {name}')
-            for tline in template.split('\n'):
-                if tline.strip():
-                    lines.append(f'    {tline}')
+            lines.append(f'    {template}')
             lines.append('')
         else:
             log.add_node(name, factory, False)
@@ -369,6 +348,10 @@ def generate_code(nodes: List[Dict], log: TranspilerLog) -> str:
 def main():
     if len(sys.argv) < 2:
         print("Usage: python transpile.py <arquivo.knwf>")
+        print("")
+        print("Output:")
+        print("  - arquivo.py      (Python code)")
+        print("  - arquivo_log.md  (diagnostic log)")
         sys.exit(1)
     
     knwf_path = Path(sys.argv[1]).resolve()
@@ -380,7 +363,6 @@ def main():
     output_path = knwf_path.with_suffix('.py')
     log_path = knwf_path.parent / f"{knwf_path.stem}_log.md"
     
-    # Initialize log
     log = TranspilerLog(str(knwf_path))
     
     print("="*60)
@@ -392,21 +374,16 @@ def main():
     print("="*60)
     
     try:
-        # Try pre-analyzed JSON first
         print("\n[1/4] Loading nodes...")
         nodes = load_analysis_json(knwf_path, log)
         
         if nodes:
             print(f"      Found {len(nodes)} nodes (from JSON)")
         else:
-            # Extract and analyze
             log.extraction_method = "KNWF Extraction"
             extract_dir = extract_knwf(knwf_path, log)
             nodes = find_nodes_from_settings(extract_dir, log)
             print(f"      Found {len(nodes)} nodes (from extraction)")
-            
-            # Cleanup
-            import shutil
             shutil.rmtree(extract_dir, ignore_errors=True)
         
         if not nodes:
@@ -423,7 +400,6 @@ def main():
         log_content = log.generate_markdown()
         log_path.write_text(log_content, encoding='utf-8')
         
-        # Print summary
         matched = len(log.template_matches)
         fallback = len(log.fallback_nodes)
         total = len(log.nodes_found)
